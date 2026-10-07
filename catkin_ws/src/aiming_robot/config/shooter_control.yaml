@@ -1,0 +1,19 @@
+shooter:
+  joint_state_controller:
+    type: joint_state_controller/JointStateController
+    publish_rate: 50
+
+  pan_position_controller:
+    type: position_controllers/JointPositionController
+    joint: pan_joint
+    pid: {p: 100.0, i: 0.01, d: 10.0}
+
+  tilt_position_controller:
+    type: position_controllers/JointPositionController
+    joint: tilt_joint
+    pid: {p: 100.0, i: 0.01, d: 10.0}
+
+  gazebo_ros_control:
+    pid_gains:
+      pan_joint: {p: 100.0, i: 0.01, d: 10.0}
+      tilt_joint: {p: 100.0, i: 0.01, d: 10.0}

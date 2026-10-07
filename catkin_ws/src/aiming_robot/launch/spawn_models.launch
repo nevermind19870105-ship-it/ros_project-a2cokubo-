@@ -1,0 +1,25 @@
+<launch>
+  <!-- Gazeboの空のワールドを起動 -->
+  <include file="$(find gazebo_ros)/launch/empty_world.launch">
+    <arg name="paused" value="false"/>
+    <arg name="use_sim_time" value="true"/>
+    <arg name="gui" value="true"/>
+  </include>
+
+  <!-- 照準砲台（シューター）のURDFを robot_description として読み込み -->
+  <param name="robot_description" textfile="/workspace/catkin_ws/src/aiming_robot/urdf/shooter.urdf" />
+  <node name="spawn_shooter" pkg="gazebo_ros" type="spawn_model" respawn="false" output="screen"
+        args="-urdf -model shooter_v2 -param robot_description -x 0 -y 0 -z 0"/>
+
+  <!-- 標的ドローンを配置 -->
+  <param name="drone_description" textfile="/workspace/catkin_ws/src/aiming_robot/urdf/drone.urdf" />
+  <node name="spawn_drone" pkg="gazebo_ros" type="spawn_model" respawn="false" output="screen"
+        args="-urdf -model drone -param drone_description -x 2 -y 2 -z 1.5"/>
+
+  <!-- コントローラパラメータの読み込み -->
+  <rosparam file="$(find aiming_robot)/config/shooter_control.yaml" command="load"/>
+
+  <!-- コントローラの起動 -->
+  <node name="controller_spawner" pkg="controller_manager" type="spawner" respawn="false"
+        output="screen" ns="/shooter" args="joint_state_controller pan_position_controller tilt_position_controller"/>
+</launch>
