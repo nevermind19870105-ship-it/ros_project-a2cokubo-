@@ -5,6 +5,8 @@ RUN apt-get update && apt-get install -y \
     python3-catkin-tools \
     ros-noetic-gazebo-ros-pkgs \
     ros-noetic-gazebo-ros-control \
+    ros-noetic-cv-bridge \
+    ros-noetic-image-view \
     x11-apps \
     && rm -rf /var/lib/apt/lists/*
 

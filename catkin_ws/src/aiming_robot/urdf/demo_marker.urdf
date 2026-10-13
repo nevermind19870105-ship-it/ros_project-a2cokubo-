@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<robot name="demo_marker">
+  <link name="base_link">
+    <visual>
+      <geometry><sphere radius="0.15"/></geometry>
+      <material name="green_marker"><color rgba="0.05 1.0 0.1 1.0"/></material>
+    </visual>
+    <collision>
+      <geometry><sphere radius="0.15"/></geometry>
+    </collision>
+    <inertial>
+      <mass value="0.1"/>
+      <origin xyz="0 0 0"/>
+      <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/>
+    </inertial>
+  </link>
+  <gazebo reference="base_link">
+    <material>Gazebo/Green</material>
+    <gravity>false</gravity>
+  </gazebo>
+</robot>

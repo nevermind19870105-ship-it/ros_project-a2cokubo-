@@ -1,0 +1,26 @@
+<launch>
+  <arg name="image_topic" default="/camera/image_raw"/>
+
+  <include file="$(find gazebo_ros)/launch/empty_world.launch">
+    <arg name="paused" value="false"/>
+    <arg name="use_sim_time" value="true"/>
+    <arg name="gui" value="true"/>
+  </include>
+
+  <param name="observer_camera_description" textfile="$(find aiming_robot)/urdf/observer_camera.urdf"/>
+  <node name="spawn_observer_camera" pkg="gazebo_ros" type="spawn_model" output="screen"
+        args="-urdf -model observer_camera -param observer_camera_description -x 2 -y -4 -z 1.5 -Y 1.5708"/>
+
+  <param name="demo_marker_description" textfile="$(find aiming_robot)/urdf/demo_marker.urdf"/>
+  <node name="spawn_demo_marker" pkg="gazebo_ros" type="spawn_model" output="screen"
+        args="-urdf -model demo_marker -param demo_marker_description -x 2 -y 0.2 -z 1.5"/>
+
+  <node pkg="aiming_robot" type="move_demo_marker.py" name="move_demo_marker" output="screen"/>
+  <node pkg="aiming_robot" type="vision_marker_tracker.py" name="vision_marker_tracker" output="screen">
+    <param name="image_topic" value="$(arg image_topic)"/>
+    <param name="output_topic" value="/vision/annotated_image"/>
+    <param name="min_area" value="100.0"/>
+    <rosparam param="hsv_lower">[40, 70, 70]</rosparam>
+    <rosparam param="hsv_upper">[85, 255, 255]</rosparam>
+  </node>
+</launch>

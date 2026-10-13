@@ -2,7 +2,7 @@
 <package format="2">
   <name>aiming_robot</name>
   <version>0.0.0</version>
-  <description>The aiming_robot package</description>
+  <description>ROS/Gazebo drone models and a passive visual marker tracking demo</description>
   <maintainer email="user@todo.todo">user</maintainer>
   <license>TODO</license>
 
@@ -11,6 +11,9 @@
   <depend>roscpp</depend>
   <depend>rospy</depend>
   <depend>std_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>cv_bridge</depend>
+  <depend>gazebo_msgs</depend>
   <depend>urdf</depend>
   <depend>xacro</depend>
   <depend>gazebo_ros</depend>
