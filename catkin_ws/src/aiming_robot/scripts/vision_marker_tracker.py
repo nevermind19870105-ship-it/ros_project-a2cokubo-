@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""Visualize a green marker in a ROS image stream.
+"""Detect and passively visualize the future position of a green marker.
 
-This node is a passive computer-vision demonstration: it publishes an annotated
-image only. It does not estimate a future position, publish machine-actionable
-coordinates, or command any robot actuator.
+This node publishes an annotated image only. Prediction is a constant-velocity
+baseline used for visual comparison; no target coordinates or actuator commands
+are published.
 """
+
+from collections import deque
+import os
 
 import cv2
 import numpy as np
@@ -18,6 +21,14 @@ class VisionMarkerTracker:
         self.image_topic = rospy.get_param("~image_topic", "/camera/image_raw")
         self.output_topic = rospy.get_param("~output_topic", "/vision/annotated_image")
         self.min_area = float(rospy.get_param("~min_area", 100.0))
+        self.prediction_horizon = max(0.0, float(rospy.get_param("~prediction_horizon", 0.25)))
+        self.history_length = max(2, int(rospy.get_param("~history_length", 8)))
+        self.predictor_mode = rospy.get_param("~predictor_mode", "mlp").lower()
+        self.history = deque(maxlen=self.history_length)
+        self.missed_frames = 0
+        self.model_weights = None
+        self.model_feature_scale = 1.0
+        self._load_model(rospy.get_param("~model_path", ""))
 
         lower = rospy.get_param("~hsv_lower", [40, 70, 70])
         upper = rospy.get_param("~hsv_upper", [85, 255, 255])
@@ -61,6 +72,12 @@ class VisionMarkerTracker:
             if area >= self.min_area:
                 x, y, width, height = cv2.boundingRect(contour)
                 center = (x + width // 2, y + height // 2)
+                stamp = image_msg.header.stamp.to_sec()
+                if stamp <= 0.0:
+                    stamp = rospy.get_time()
+                future = self._predict(center, stamp, frame.shape)
+                self.missed_frames = 0
+
                 cv2.rectangle(annotated, (x, y), (x + width, y + height), (0, 255, 0), 2)
                 cv2.drawMarker(
                     annotated,
@@ -72,7 +89,7 @@ class VisionMarkerTracker:
                 )
                 cv2.putText(
                     annotated,
-                    "Green marker detected",
+                    "Current position",
                     (max(8, x), max(24, y - 8)),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.6,
@@ -80,9 +97,27 @@ class VisionMarkerTracker:
                     2,
                     cv2.LINE_AA,
                 )
+                if future is not None:
+                    future_x = int(round(np.clip(future[0], 0, frame.shape[1] - 1)))
+                    future_y = int(round(np.clip(future[1], 0, frame.shape[0] - 1)))
+                    cv2.line(annotated, center, (future_x, future_y), (255, 120, 0), 2)
+                    cv2.circle(annotated, (future_x, future_y), 8, (255, 120, 0), 2)
+                    cv2.putText(
+                        annotated,
+                        "Linear prediction +{:.2f}s".format(self.prediction_horizon),
+                        (max(8, min(future_x, frame.shape[1] - 250)), max(24, future_y - 12)),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.55,
+                        (255, 150, 0),
+                        2,
+                        cv2.LINE_AA,
+                    )
                 detected = True
 
         if not detected:
+            self.missed_frames += 1
+            if self.missed_frames > 4:
+                self.history.clear()
             cv2.putText(
                 annotated,
                 "Waiting for green marker",
@@ -96,7 +131,7 @@ class VisionMarkerTracker:
 
         cv2.putText(
             annotated,
-            "Visual demo only - no prediction or actuator output",
+            "Visual prediction only - no actuator output",
             (12, annotated.shape[0] - 12),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.45,
@@ -111,6 +146,68 @@ class VisionMarkerTracker:
             self.publisher.publish(output_msg)
         except CvBridgeError as exc:
             rospy.logwarn_throttle(5.0, "Could not publish annotated image: %s", exc)
+
+    def _load_model(self, model_path):
+        if self.predictor_mode != "mlp":
+            return
+        if not model_path or not os.path.isfile(model_path):
+            rospy.logwarn("Pretrained model not found; using linear prediction")
+            self.predictor_mode = "linear"
+            return
+
+        try:
+            with np.load(model_path, allow_pickle=False) as data:
+                model_history_length = int(data["history_length"])
+                model_horizon = float(data["horizon_seconds"])
+                if model_history_length != self.history_length:
+                    raise ValueError("model history_length does not match node configuration")
+                if abs(model_horizon - self.prediction_horizon) > 1e-6:
+                    raise ValueError("model horizon_seconds does not match node configuration")
+                self.model_feature_scale = float(data["feature_scale"])
+                self.model_weights = {
+                    name: np.asarray(data[name], dtype=np.float32)
+                    for name in ("w1", "b1", "w2", "b2", "w3", "b3")
+                }
+            rospy.loginfo("Loaded pretrained trajectory model from %s", model_path)
+        except (OSError, KeyError, ValueError) as exc:
+            rospy.logwarn("Could not load pretrained model (%s); using linear prediction", exc)
+            self.predictor_mode = "linear"
+            self.model_weights = None
+
+    def _predict(self, center, stamp, frame_shape):
+        """Predict a short-horizon image position using MLP or linear baseline."""
+        if self.history and stamp <= self.history[-1][0]:
+            self.history.clear()
+        self.history.append((stamp, float(center[0]), float(center[1])))
+        if len(self.history) < 3 or self.prediction_horizon <= 0.0:
+            return None
+
+        samples = np.asarray(self.history, dtype=np.float64)
+        relative_times = samples[:, 0] - samples[-1, 0]
+        if relative_times[-1] > -0.02:
+            return None
+
+        if self.predictor_mode == "mlp" and self.model_weights is not None:
+            model_history = samples[-self.history_length :, 1:3]
+            current = model_history[-1]
+            image_scale = np.asarray([frame_shape[1], frame_shape[0]], dtype=np.float32)
+            offsets = (model_history - current) / image_scale
+            features = (offsets.reshape(1, -1) * self.model_feature_scale).astype(np.float32)
+            hidden1 = np.tanh(features @ self.model_weights["w1"] + self.model_weights["b1"])
+            hidden2 = np.tanh(hidden1 @ self.model_weights["w2"] + self.model_weights["b2"])
+            predicted_delta = (
+                hidden2 @ self.model_weights["w3"] + self.model_weights["b3"]
+            )[0] / self.model_feature_scale
+            predicted = np.asarray(center, dtype=np.float64) + predicted_delta * image_scale
+            if np.all(np.isfinite(predicted)):
+                return float(predicted[0]), float(predicted[1])
+
+        velocity_x = np.polyfit(relative_times, samples[:, 1], 1)[0]
+        velocity_y = np.polyfit(relative_times, samples[:, 2], 1)[0]
+        return (
+            center[0] + velocity_x * self.prediction_horizon,
+            center[1] + velocity_y * self.prediction_horizon,
+        )
 
 
 def main():

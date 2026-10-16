@@ -24,5 +24,10 @@ include_directories(
 catkin_install_python(PROGRAMS
   scripts/vision_marker_tracker.py
   scripts/move_demo_marker.py
+  scripts/train_trajectory_predictor.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
+
+install(DIRECTORY models/
+  DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}/models
 )

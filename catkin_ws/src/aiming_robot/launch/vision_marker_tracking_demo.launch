@@ -1,5 +1,8 @@
 <launch>
   <arg name="image_topic" default="/camera/image_raw"/>
+  <arg name="prediction_horizon" default="0.25"/>
+  <arg name="history_length" default="8"/>
+  <arg name="predictor_mode" default="mlp"/>
 
   <include file="$(find gazebo_ros)/launch/empty_world.launch">
     <arg name="paused" value="false"/>
@@ -20,6 +23,10 @@
     <param name="image_topic" value="$(arg image_topic)"/>
     <param name="output_topic" value="/vision/annotated_image"/>
     <param name="min_area" value="100.0"/>
+    <param name="prediction_horizon" value="$(arg prediction_horizon)"/>
+    <param name="history_length" value="$(arg history_length)"/>
+    <param name="predictor_mode" value="$(arg predictor_mode)"/>
+    <param name="model_path" value="$(find aiming_robot)/models/trajectory_mlp.npz"/>
     <rosparam param="hsv_lower">[40, 70, 70]</rosparam>
     <rosparam param="hsv_upper">[85, 255, 255]</rosparam>
   </node>
