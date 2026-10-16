@@ -208,8 +208,6 @@ class VisionMarkerTracker:
 
         samples = np.asarray(self.history, dtype=np.float64)
         relative_times = samples[:, 0] - samples[-1, 0]
-        if relative_times[-1] > -0.02:
-            return None
 
         if self.predictor_mode == "mlp" and self.model_weights is not None:
             model_history = samples[-self.history_length :, 1:3]
