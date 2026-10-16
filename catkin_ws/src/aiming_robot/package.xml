@@ -2,7 +2,7 @@
 <package format="2">
   <name>aiming_robot</name>
   <version>0.0.0</version>
-  <description>ROS/Gazebo drone models and a passive visual marker tracking demo</description>
+  <description>ROS/Gazebo models with a visual marker and gimbal status dashboard demo</description>
   <maintainer email="user@todo.todo">user</maintainer>
   <license>TODO</license>
 

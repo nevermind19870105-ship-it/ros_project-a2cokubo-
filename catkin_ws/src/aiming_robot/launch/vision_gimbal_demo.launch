@@ -34,4 +34,15 @@
     <rosparam param="hsv_upper">[85, 255, 255]</rosparam>
   </node>
   <node pkg="aiming_robot" type="camera_gimbal_controller.py" name="camera_gimbal_controller" output="screen"/>
+  <node pkg="aiming_robot" type="gazebo_status_dashboard.py" name="gazebo_status_dashboard" output="screen">
+    <param name="image_topic" value="/vision/annotated_image"/>
+    <param name="joint_state_topic" value="/shooter/joint_states"/>
+    <param name="model_states_topic" value="/gazebo/model_states"/>
+    <param name="predicted_pixel_topic" value="/vision/predicted_pixel"/>
+    <param name="marker_model" value="demo_marker"/>
+    <param name="gimbal_model" value="camera_gimbal"/>
+    <param name="horizontal_fov_degrees" value="60.0"/>
+    <param name="marker_diameter" value="0.30"/>
+    <param name="camera_forward_offset" value="0.30"/>
+  </node>
 </launch>

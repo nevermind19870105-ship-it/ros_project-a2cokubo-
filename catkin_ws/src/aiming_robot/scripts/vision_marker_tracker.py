@@ -22,6 +22,9 @@ class VisionMarkerTracker:
         self.image_topic = rospy.get_param("~image_topic", "/camera/image_raw")
         self.output_topic = rospy.get_param("~output_topic", "/vision/annotated_image")
         self.offset_topic = rospy.get_param("~offset_topic", "/vision/marker_offset")
+        self.predicted_pixel_topic = rospy.get_param(
+            "~predicted_pixel_topic", "/vision/predicted_pixel"
+        )
         self.min_area = float(rospy.get_param("~min_area", 100.0))
         self.prediction_horizon = max(0.0, float(rospy.get_param("~prediction_horizon", 0.25)))
         self.history_length = max(2, int(rospy.get_param("~history_length", 8)))
@@ -42,6 +45,9 @@ class VisionMarkerTracker:
         self.bridge = CvBridge()
         self.publisher = rospy.Publisher(self.output_topic, Image, queue_size=1)
         self.offset_publisher = rospy.Publisher(self.offset_topic, PointStamped, queue_size=1)
+        self.predicted_pixel_publisher = rospy.Publisher(
+            self.predicted_pixel_topic, PointStamped, queue_size=1
+        )
         self.subscriber = rospy.Subscriber(
             self.image_topic,
             Image,
@@ -69,6 +75,8 @@ class VisionMarkerTracker:
 
         annotated = frame.copy()
         detected = False
+        predicted_msg = PointStamped()
+        predicted_msg.header = image_msg.header
         if contours:
             contour = max(contours, key=cv2.contourArea)
             area = cv2.contourArea(contour)
@@ -86,6 +94,11 @@ class VisionMarkerTracker:
                     stamp = rospy.get_time()
                 future = self._predict(center, stamp, frame.shape)
                 self.missed_frames = 0
+
+                if future is not None:
+                    predicted_msg.point.x = float(future[0])
+                    predicted_msg.point.y = float(future[1])
+                    predicted_msg.point.z = float(width)
 
                 cv2.rectangle(annotated, (x, y), (x + width, y + height), (0, 255, 0), 2)
                 cv2.drawMarker(
@@ -113,7 +126,7 @@ class VisionMarkerTracker:
                     cv2.circle(annotated, (future_x, future_y), 8, (255, 120, 0), 2)
                     cv2.putText(
                         annotated,
-                        "Linear prediction +{:.2f}s".format(self.prediction_horizon),
+                        "Prediction +{:.2f}s".format(self.prediction_horizon),
                         (max(8, min(future_x, frame.shape[1] - 250)), max(24, future_y - 12)),
                         cv2.FONT_HERSHEY_SIMPLEX,
                         0.55,
@@ -122,6 +135,8 @@ class VisionMarkerTracker:
                         cv2.LINE_AA,
                     )
                 detected = True
+
+        self.predicted_pixel_publisher.publish(predicted_msg)
 
         if not detected:
             self.missed_frames += 1
