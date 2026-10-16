@@ -5,6 +5,7 @@ find_package(catkin REQUIRED COMPONENTS
   roscpp
   rospy
   std_msgs
+  geometry_msgs
   sensor_msgs
   cv_bridge
   gazebo_msgs
@@ -14,7 +15,7 @@ find_package(catkin REQUIRED COMPONENTS
 )
 
 catkin_package(
-  CATKIN_DEPENDS rospy std_msgs sensor_msgs cv_bridge gazebo_msgs urdf xacro gazebo_ros
+  CATKIN_DEPENDS rospy std_msgs geometry_msgs sensor_msgs cv_bridge gazebo_msgs urdf xacro gazebo_ros
 )
 
 include_directories(
@@ -23,6 +24,7 @@ include_directories(
 
 catkin_install_python(PROGRAMS
   scripts/vision_marker_tracker.py
+  scripts/camera_gimbal_controller.py
   scripts/move_demo_marker.py
   scripts/train_trajectory_predictor.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}

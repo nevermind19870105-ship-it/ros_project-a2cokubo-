@@ -13,6 +13,7 @@ import cv2
 import numpy as np
 import rospy
 from cv_bridge import CvBridge, CvBridgeError
+from geometry_msgs.msg import PointStamped
 from sensor_msgs.msg import Image
 
 
@@ -20,6 +21,7 @@ class VisionMarkerTracker:
     def __init__(self):
         self.image_topic = rospy.get_param("~image_topic", "/camera/image_raw")
         self.output_topic = rospy.get_param("~output_topic", "/vision/annotated_image")
+        self.offset_topic = rospy.get_param("~offset_topic", "/vision/marker_offset")
         self.min_area = float(rospy.get_param("~min_area", 100.0))
         self.prediction_horizon = max(0.0, float(rospy.get_param("~prediction_horizon", 0.25)))
         self.history_length = max(2, int(rospy.get_param("~history_length", 8)))
@@ -39,6 +41,7 @@ class VisionMarkerTracker:
 
         self.bridge = CvBridge()
         self.publisher = rospy.Publisher(self.output_topic, Image, queue_size=1)
+        self.offset_publisher = rospy.Publisher(self.offset_topic, PointStamped, queue_size=1)
         self.subscriber = rospy.Subscriber(
             self.image_topic,
             Image,
@@ -72,6 +75,12 @@ class VisionMarkerTracker:
             if area >= self.min_area:
                 x, y, width, height = cv2.boundingRect(contour)
                 center = (x + width // 2, y + height // 2)
+                offset_msg = PointStamped()
+                offset_msg.header = image_msg.header
+                offset_msg.point.x = float((center[0] - frame.shape[1] / 2.0) / (frame.shape[1] / 2.0))
+                offset_msg.point.y = float((center[1] - frame.shape[0] / 2.0) / (frame.shape[0] / 2.0))
+                offset_msg.point.z = float(area / (frame.shape[0] * frame.shape[1]))
+                self.offset_publisher.publish(offset_msg)
                 stamp = image_msg.header.stamp.to_sec()
                 if stamp <= 0.0:
                     stamp = rospy.get_time()

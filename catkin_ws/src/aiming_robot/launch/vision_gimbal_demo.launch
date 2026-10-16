@@ -1,0 +1,37 @@
+<launch>
+  <arg name="image_topic" default="/shooter/camera/image_raw"/>
+  <arg name="gui" default="true"/>
+
+  <include file="$(find gazebo_ros)/launch/empty_world.launch">
+    <arg name="paused" value="false"/>
+    <arg name="use_sim_time" value="true"/>
+    <arg name="gui" value="$(arg gui)"/>
+  </include>
+
+  <param name="robot_description" textfile="$(find aiming_robot)/urdf/shooter.urdf"/>
+  <node name="spawn_camera_gimbal" pkg="gazebo_ros" type="spawn_model" output="screen"
+        args="-urdf -model camera_gimbal -param robot_description -x 0 -y 0 -z 0.05"/>
+
+  <param name="demo_marker_description" textfile="$(find aiming_robot)/urdf/demo_marker.urdf"/>
+  <node name="spawn_demo_marker" pkg="gazebo_ros" type="spawn_model" output="screen"
+        args="-urdf -model demo_marker -param demo_marker_description -x 2.8 -y 0.2 -z 1.5"/>
+
+  <rosparam file="$(find aiming_robot)/config/shooter_control.yaml" command="load"/>
+  <node name="gimbal_controller_spawner" pkg="controller_manager" type="spawner" respawn="false"
+        output="screen" ns="/shooter"
+        args="joint_state_controller pan_position_controller tilt_position_controller"/>
+
+  <node pkg="aiming_robot" type="move_demo_marker.py" name="move_demo_marker" output="screen"/>
+  <node pkg="aiming_robot" type="vision_marker_tracker.py" name="vision_marker_tracker" output="screen">
+    <param name="image_topic" value="$(arg image_topic)"/>
+    <param name="output_topic" value="/vision/annotated_image"/>
+    <param name="offset_topic" value="/vision/marker_offset"/>
+    <param name="prediction_horizon" value="0.25"/>
+    <param name="history_length" value="8"/>
+    <param name="predictor_mode" value="mlp"/>
+    <param name="model_path" value="$(find aiming_robot)/models/trajectory_mlp.npz"/>
+    <rosparam param="hsv_lower">[40, 70, 70]</rosparam>
+    <rosparam param="hsv_upper">[85, 255, 255]</rosparam>
+  </node>
+  <node pkg="aiming_robot" type="camera_gimbal_controller.py" name="camera_gimbal_controller" output="screen"/>
+</launch>

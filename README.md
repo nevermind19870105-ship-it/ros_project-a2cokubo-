@@ -56,6 +56,16 @@ roslaunch aiming_robot vision_marker_tracking_demo.launch predictor_mode:=linear
 rosrun image_view image_view image:=/vision/annotated_image
 ```
 
+## カメラジンバル追従デモ
+
+砲台形モデルのパン／チルト関節をカメラ台として使い、画像中心からの緑色マーカーのずれをもとに、Gazebo内でカメラの向きを調整します。GazeboのGUIで実行する場合は次を起動してください。
+
+```bash
+roslaunch aiming_robot vision_gimbal_demo.launch
+```
+
+このデモは緑色マーカーの現在位置をカメラ中央へ戻すシミュレーション専用のジンバル動作です。未来位置は画像上への表示に限り、発射・弾丸・アクチュエータ出力は実装していません。画像中心から遠いほど角度指令が大きくなりますが、関節範囲内に制限します。
+
 ## トピック
 
 | トピック | 内容 |
