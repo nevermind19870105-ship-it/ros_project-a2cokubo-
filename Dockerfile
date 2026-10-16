@@ -7,9 +7,8 @@ RUN apt-get update && apt-get install -y \
     ros-noetic-gazebo-ros-control \
     ros-noetic-cv-bridge \
     ros-noetic-image-view \
+    python3-opencv \
     x11-apps \
     && rm -rf /var/lib/apt/lists/*
-
-RUN pip3 install opencv-python numpy matplotlib
 
 WORKDIR /workspace
