@@ -209,7 +209,11 @@ class VisionMarkerTracker:
         samples = np.asarray(self.history, dtype=np.float64)
         relative_times = samples[:, 0] - samples[-1, 0]
 
-        if self.predictor_mode == "mlp" and self.model_weights is not None:
+        if (
+            self.predictor_mode == "mlp"
+            and self.model_weights is not None
+            and len(samples) >= self.history_length
+        ):
             model_history = samples[-self.history_length :, 1:3]
             current = model_history[-1]
             image_scale = np.asarray([frame_shape[1], frame_shape[0]], dtype=np.float32)

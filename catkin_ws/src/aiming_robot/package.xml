@@ -18,4 +18,6 @@
   <depend>urdf</depend>
   <depend>xacro</depend>
   <depend>gazebo_ros</depend>
+  <depend>robot_state_publisher</depend>
+  <depend>dynamic_reconfigure</depend>
 </package>

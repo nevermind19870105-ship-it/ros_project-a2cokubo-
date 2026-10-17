@@ -45,6 +45,7 @@ class GazeboStatusDashboard:
         self.gimbal_model = rospy.get_param("~gimbal_model", "camera_gimbal")
         self.horizontal_fov = math.radians(float(rospy.get_param("~horizontal_fov_degrees", 60.0)))
         self.marker_diameter = float(rospy.get_param("~marker_diameter", 0.30))
+        self.prediction_horizon = float(rospy.get_param("~radar_prediction_horizon", 0.25))
 
         self.lock = threading.Lock()
         self.bridge = CvBridge()
@@ -53,7 +54,10 @@ class GazeboStatusDashboard:
         self.marker_position = None
         self.gimbal_pose = None
         self.predicted_pixel = None
+        self.radar_position = None
+        self.radar_prediction = None
         self.image_stamp = None
+        self.radar_images = {"left": None, "right": None}
 
         rospy.Subscriber(self.image_topic, Image, self._image_callback, queue_size=1)
         rospy.Subscriber(self.joint_topic, JointState, self._joint_callback, queue_size=1)
@@ -61,6 +65,14 @@ class GazeboStatusDashboard:
         rospy.Subscriber(
             self.predicted_pixel_topic, PointStamped, self._prediction_callback, queue_size=1
         )
+        rospy.Subscriber("/radar/target_position", PointStamped, self._radar_position_callback, queue_size=1)
+        rospy.Subscriber(
+            "/radar/predicted_target_position", PointStamped,
+            self._radar_prediction_callback, queue_size=1
+        )
+        for side in ("left", "right"):
+            topic = rospy.get_param("~radar_{}_topic".format(side), "/shooter/radar_{}/image".format(side))
+            rospy.Subscriber(topic, Image, self._radar_callback, callback_args=side, queue_size=1)
         rospy.loginfo("Gazebo status dashboard listening for camera, joints, and model states")
 
     def _image_callback(self, message):
@@ -72,6 +84,15 @@ class GazeboStatusDashboard:
         with self.lock:
             self.image = image
             self.image_stamp = message.header.stamp
+
+    def _radar_callback(self, message, side):
+        try:
+            image = self.bridge.imgmsg_to_cv2(message, desired_encoding="mono8")
+        except CvBridgeError as exc:
+            rospy.logwarn_throttle(5.0, "Radar %s image conversion failed: %s", side, exc)
+            return
+        with self.lock:
+            self.radar_images[side] = image
 
     def _joint_callback(self, message):
         angles = {}
@@ -105,6 +126,18 @@ class GazeboStatusDashboard:
     def _prediction_callback(self, message):
         with self.lock:
             self.predicted_pixel = (float(message.point.x), float(message.point.y), float(message.point.z))
+
+    def _radar_position_callback(self, message):
+        with self.lock:
+            self.radar_position = np.asarray(
+                [message.point.x, message.point.y, message.point.z], dtype=np.float64
+            )
+
+    def _radar_prediction_callback(self, message):
+        with self.lock:
+            self.radar_prediction = np.asarray(
+                [message.point.x, message.point.y, message.point.z], dtype=np.float64
+            )
 
     def _predicted_world_position(self, image_shape, angles, gimbal_pose, prediction):
         """Back-project predicted pixels using apparent size of the known sphere."""
@@ -149,6 +182,9 @@ class GazeboStatusDashboard:
                 marker = None if self.marker_position is None else self.marker_position.copy()
                 gimbal = self.gimbal_pose
                 prediction = self.predicted_pixel
+                radar_images = dict(self.radar_images)
+                radar_position = None if self.radar_position is None else self.radar_position.copy()
+                radar_prediction = None if self.radar_prediction is None else self.radar_prediction.copy()
 
             if image is None:
                 image = np.zeros((480, 640, 3), dtype=np.uint8)
@@ -157,7 +193,8 @@ class GazeboStatusDashboard:
             predicted_world = self._predicted_world_position(image.shape, angles, gimbal, prediction)
 
             panel_width = 440
-            canvas = np.zeros((max(image.shape[0], 560), image.shape[1] + panel_width, 3), dtype=np.uint8)
+            radar_panel_height = 150
+            canvas = np.zeros((max(image.shape[0], 560) + radar_panel_height, image.shape[1] + panel_width, 3), dtype=np.uint8)
             canvas[:image.shape[0], :image.shape[1]] = image
             x0 = image.shape[1] + 24
             lines = [
@@ -174,7 +211,17 @@ class GazeboStatusDashboard:
                 ("Estimate depth from known 0.30 m marker size.", (180, 180, 180)),
                 ("Predicted pixel: {}".format(self._pixel_text(prediction)), (180, 180, 180)),
                 ("World frame: Gazebo world [m]", (180, 180, 180)),
+                ("", (240, 240, 240)),
+                ("RADAR FUSED POSITION", (100, 255, 140)),
+                (self._point_text(radar_position), (240, 240, 240)),
+                ("RADAR PREDICTION (+{:.2f}s)".format(self.prediction_horizon), (80, 180, 255)),
+                (self._point_text(radar_prediction), (240, 240, 240)),
             ]
+            canvas_height = max(560, 42 + len(lines) * 38) + radar_panel_height
+            if canvas_height > canvas.shape[0]:
+                expanded = np.zeros((canvas_height, canvas.shape[1], 3), dtype=np.uint8)
+                expanded[:canvas.shape[0], :, :] = canvas
+                canvas = expanded
             y = 42
             for text, color in lines:
                 if text:
@@ -182,6 +229,20 @@ class GazeboStatusDashboard:
                     cv2.putText(canvas, text, (x0, y), cv2.FONT_HERSHEY_SIMPLEX, scale,
                                 color, 1 if scale < 0.6 else 2, cv2.LINE_AA)
                 y += 38
+            for index, side in enumerate(("left", "right")):
+                x = index * 520 + 10
+                radar = radar_images[side]
+                if radar is None:
+                    radar_bgr = np.zeros((120, 500, 3), dtype=np.uint8)
+                    cv2.putText(radar_bgr, "Waiting for FMCW radar...", (15, 65), cv2.FONT_HERSHEY_SIMPLEX,
+                                0.55, (0, 220, 255), 1, cv2.LINE_AA)
+                else:
+                    radar_bgr = cv2.cvtColor(cv2.resize(radar, (500, 120), interpolation=cv2.INTER_AREA),
+                                             cv2.COLOR_GRAY2BGR)
+                cv2.putText(canvas, "{} FMCW radar  (angle x range)".format(side.upper()),
+                            (x, image.shape[0] + 22), cv2.FONT_HERSHEY_SIMPLEX, 0.48,
+                            (200, 230, 255), 1, cv2.LINE_AA)
+                canvas[image.shape[0] + 28:image.shape[0] + 148, x:x + 500] = radar_bgr
             cv2.imshow(window, canvas)
             if cv2.waitKey(1) & 0xFF in (27, ord("q")):
                 rospy.signal_shutdown("Dashboard window closed")
