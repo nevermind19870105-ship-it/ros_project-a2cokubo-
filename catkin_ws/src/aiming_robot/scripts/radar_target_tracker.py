@@ -11,6 +11,8 @@ import threading
 
 import numpy as np
 import rospy
+from pathlib import Path
+import rospkg
 from geometry_msgs.msg import PointStamped
 from sensor_msgs.msg import Image
 
@@ -24,9 +26,35 @@ class RadarTargetTracker:
         self.sensor_y = float(rospy.get_param("~sensor_y_offset", 0.14))
         self.scan_height = float(rospy.get_param("~scan_height", 1.50))
         self.prediction_horizon = float(rospy.get_param("~prediction_horizon", 0.25))
+        self.predictor_mode = rospy.get_param("~predictor_mode", "mlp").lower()
+        default_model = Path(rospkg.RosPack().get_path("aiming_robot")) / "models" / "radar_trajectory_mlp.npz"
+        model_path = rospy.get_param("~model_path", str(default_model))
+        self.model = None
+        self.model_scale = 1.0
+        self.model_interval = 0.25
+        self.model_horizon = 0.25
+        if self.predictor_mode == "mlp":
+            try:
+                with np.load(model_path) as archive:
+                    self.model = {key: archive[key].copy() for key in ("w1", "b1", "w2", "b2", "w3", "b3")}
+                    history_length = int(archive["history_length"])
+                    self.model_interval = float(archive["sample_interval"])
+                    self.model_horizon = float(archive["horizon_seconds"])
+                    self.model_scale = float(archive["feature_scale"])
+                if history_length != 8 or self.model["w1"].shape[0] != 16:
+                    raise ValueError("radar model must use 8 XY observations")
+                if abs(self.model_horizon - self.prediction_horizon) > 1e-4:
+                    raise ValueError("model horizon does not match prediction_horizon")
+                rospy.loginfo("Loaded pretrained radar MLP from %s", model_path)
+            except (OSError, KeyError, ValueError) as exc:
+                rospy.logwarn("Radar MLP unavailable (%s); using linear prediction", exc)
+                self.predictor_mode = "linear"
+        elif self.predictor_mode != "linear":
+            rospy.logwarn("Unknown radar predictor_mode=%s; using linear prediction", self.predictor_mode)
+            self.predictor_mode = "linear"
         self.latest = {"left": None, "right": None}
         self.last_pair = None
-        self.history = deque(maxlen=8)
+        self.history = deque(maxlen=40)
         self.lock = threading.Lock()
 
         self.position_pub = rospy.Publisher("/radar/target_position", PointStamped, queue_size=1)
@@ -36,7 +64,7 @@ class RadarTargetTracker:
         for side in ("left", "right"):
             topic = rospy.get_param("~{}_image_topic".format(side), "/shooter/radar_{}/image".format(side))
             rospy.Subscriber(topic, Image, self._image_callback, callback_args=side, queue_size=1)
-        rospy.loginfo("Fusing left/right FMCW radar images into world-coordinate target estimates")
+        rospy.loginfo("Fusing left/right FMCW radar images; predictor=%s", self.predictor_mode)
 
     def _image_callback(self, message, side):
         try:
@@ -111,22 +139,55 @@ class RadarTargetTracker:
     def _publish_prediction(self, point):
         stamp_seconds = point.header.stamp.to_sec()
         if self.history and stamp_seconds <= self.history[-1][0]:
-            self.history.clear()
+            if stamp_seconds < self.history[-1][0]:
+                self.history.clear()
+            else:
+                return
         self.history.append((stamp_seconds, point.point.x, point.point.y))
         if len(self.history) < 3 or self.prediction_horizon <= 0.0:
             return
 
+        samples = self._resample_history()
+        if samples is None:
+            return
+        current = samples[-1, 1:3]
+        if self.predictor_mode == "mlp" and self.model is not None:
+            offsets = ((samples[:, 1:3] - current) / self.model_scale).reshape(1, -1)
+            delta = self._forward(offsets, self.model)[0] * self.model_scale
+            future_xy = current + delta
+        else:
+            future_xy = self._linear_prediction(samples)
+        predicted = PointStamped()
+        predicted.header = point.header
+        predicted.point.x, predicted.point.y = float(future_xy[0]), float(future_xy[1])
+        predicted.point.z = self.scan_height
+        self.prediction_pub.publish(predicted)
+
+    def _resample_history(self):
+        if len(self.history) < 8:
+            return None
         samples = np.asarray(self.history, dtype=np.float64)
+        interval = self.model_interval if self.predictor_mode == "mlp" else 0.25
+        query_times = samples[-1, 0] - interval * np.arange(7, -1, -1)
+        if query_times[0] < samples[0, 0] or samples[-1, 0] - samples[-2, 0] > 1.0:
+            return None
+        regular = np.column_stack((query_times, np.interp(query_times, samples[:, 0], samples[:, 1]),
+                                   np.interp(query_times, samples[:, 0], samples[:, 2])))
+        return regular
+
+    @staticmethod
+    def _forward(features, weights):
+        hidden1 = np.tanh(features @ weights["w1"] + weights["b1"])
+        hidden2 = np.tanh(hidden1 @ weights["w2"] + weights["b2"])
+        return hidden2 @ weights["w3"] + weights["b3"]
+
+    def _linear_prediction(self, samples):
         relative_time = samples[:, 0] - samples[-1, 0]
         design = np.column_stack((relative_time, np.ones_like(relative_time)))
         velocity_x = np.linalg.lstsq(design, samples[:, 1], rcond=None)[0][0]
         velocity_y = np.linalg.lstsq(design, samples[:, 2], rcond=None)[0][0]
-        predicted = PointStamped()
-        predicted.header = point.header
-        predicted.point.x = point.point.x + velocity_x * self.prediction_horizon
-        predicted.point.y = point.point.y + velocity_y * self.prediction_horizon
-        predicted.point.z = self.scan_height
-        self.prediction_pub.publish(predicted)
+        return np.asarray([samples[-1, 1] + velocity_x * self.prediction_horizon,
+                           samples[-1, 2] + velocity_y * self.prediction_horizon])
 
 
 def main():

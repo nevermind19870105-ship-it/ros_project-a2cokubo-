@@ -28,6 +28,7 @@ catkin_install_python(PROGRAMS
   scripts/gazebo_status_dashboard.py
   scripts/move_demo_marker.py
   scripts/train_trajectory_predictor.py
+  scripts/train_radar_predictor.py
   scripts/configure_radar.py
   scripts/radar_target_tracker.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}

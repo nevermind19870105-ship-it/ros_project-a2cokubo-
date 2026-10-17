@@ -2,6 +2,7 @@
   <arg name="image_topic" default="/shooter/camera/image_raw"/>
   <arg name="gui" default="true"/>
   <arg name="world" default="$(find aiming_robot)/worlds/radar_demo.world"/>
+  <arg name="radar_predictor_mode" default="mlp"/>
 
   <include file="$(find gazebo_ros)/launch/empty_world.launch">
     <arg name="world_name" value="$(arg world)"/>
@@ -33,6 +34,8 @@
     <param name="sensor_y_offset" value="0.14"/>
     <param name="scan_height" value="1.50"/>
     <param name="prediction_horizon" value="0.25"/>
+    <param name="predictor_mode" value="$(arg radar_predictor_mode)"/>
+    <param name="model_path" value="$(find aiming_robot)/models/radar_trajectory_mlp.npz"/>
   </node>
 
   <rosparam file="$(find aiming_robot)/config/shooter_control.yaml" command="load"/>
@@ -68,5 +71,6 @@
     <param name="marker_diameter" value="0.30"/>
     <param name="camera_forward_offset" value="0.30"/>
     <param name="radar_prediction_horizon" value="0.25"/>
+    <param name="radar_predictor_mode" value="$(arg radar_predictor_mode)"/>
   </node>
 </launch>

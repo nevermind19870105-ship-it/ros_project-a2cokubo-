@@ -46,6 +46,7 @@ class GazeboStatusDashboard:
         self.horizontal_fov = math.radians(float(rospy.get_param("~horizontal_fov_degrees", 60.0)))
         self.marker_diameter = float(rospy.get_param("~marker_diameter", 0.30))
         self.prediction_horizon = float(rospy.get_param("~radar_prediction_horizon", 0.25))
+        self.radar_predictor_mode = rospy.get_param("~radar_predictor_mode", "mlp").upper()
 
         self.lock = threading.Lock()
         self.bridge = CvBridge()
@@ -214,7 +215,9 @@ class GazeboStatusDashboard:
                 ("", (240, 240, 240)),
                 ("RADAR FUSED POSITION", (100, 255, 140)),
                 (self._point_text(radar_position), (240, 240, 240)),
-                ("RADAR PREDICTION (+{:.2f}s)".format(self.prediction_horizon), (80, 180, 255)),
+                ("RADAR {} PREDICTION (+{:.2f}s)".format(
+                    self.radar_predictor_mode, self.prediction_horizon
+                ), (80, 180, 255)),
                 (self._point_text(radar_prediction), (240, 240, 240)),
             ]
             canvas_height = max(560, 42 + len(lines) * 38) + radar_panel_height
