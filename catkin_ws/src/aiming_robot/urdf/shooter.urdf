@@ -173,8 +173,8 @@
       <update_rate>4</update_rate>
       <ray><scan><horizontal>
         <min_angle>-3.141593</min_angle><max_angle>3.141593</max_angle>
-        <samples>400</samples><resolution>1</resolution>
-      </horizontal></scan><range><min>0.2</min><max>30.0</max><resolution>0.0438</resolution></range></ray>
+        <samples>150</samples><resolution>1</resolution>
+      </horizontal></scan><range><min>0.2</min><max>12.0</max><resolution>0.0438</resolution></range></ray>
       <plugin name="radarays_left_ros" filename="/opt/ros/noetic/lib/libradarays_embree_ros_gzplugin.so">
         <frame>radar_left_link</frame><topic>/shooter/radar_left/image</topic>
       </plugin>
@@ -186,7 +186,7 @@
     <sensor type="camera" name="gimbal_camera_sensor">
       <pose>0.30 0 0 0 0 0</pose>
       <always_on>true</always_on>
-      <update_rate>30.0</update_rate>
+      <update_rate>15.0</update_rate>
       <visualize>false</visualize>
       <camera>
         <horizontal_fov>1.047198</horizontal_fov>

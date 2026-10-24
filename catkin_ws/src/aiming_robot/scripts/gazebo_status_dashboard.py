@@ -179,7 +179,7 @@ class GazeboStatusDashboard:
         self.camera_forward_offset = float(rospy.get_param("~camera_forward_offset", 0.30))
         window = "Gazebo Gimbal Monitor"
         cv2.namedWindow(window, cv2.WINDOW_NORMAL)
-        rate = rospy.Rate(30)
+        rate = rospy.Rate(15)
         while not rospy.is_shutdown():
             with self.lock:
                 image = None if self.image is None else self.image.copy()

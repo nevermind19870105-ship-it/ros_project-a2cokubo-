@@ -9,8 +9,8 @@ def main():
     rospy.init_node("configure_radar", anonymous=False)
     settings = {
         "ambient_noise": 0,
-        "range_max": 45.0,
-        "n_cells": 1024,
+        "range_max": 12.0,
+        "n_cells": 512,
         "n_samples": 3,
         "n_reflections": 2,
     }
