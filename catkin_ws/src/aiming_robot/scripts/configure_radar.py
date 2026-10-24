@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Apply low-noise, demo-range settings to the two simulated FMCW radars."""
+"""Apply low-noise, demo-range settings to configured simulated FMCW radars."""
 
 import rospy
 from dynamic_reconfigure.client import Client
@@ -14,7 +14,7 @@ def main():
         "n_samples": 3,
         "n_reflections": 2,
     }
-    for side in ("left", "right"):
+    for side in rospy.get_param("~sensor_sides", ["left", "right"]):
         namespace = "/gazebo/radarays/radar_{}_sensor".format(side)
         try:
             client = Client(namespace, timeout=30.0)

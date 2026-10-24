@@ -47,6 +47,10 @@ class GazeboStatusDashboard:
         self.marker_diameter = float(rospy.get_param("~marker_diameter", 0.30))
         self.prediction_horizon = float(rospy.get_param("~radar_prediction_horizon", 0.25))
         self.radar_predictor_mode = rospy.get_param("~radar_predictor_mode", "mlp").upper()
+        self.radar_sides = rospy.get_param("~radar_sides", ["left", "right"])
+        self.radar_range_resolution = float(rospy.get_param("~radar_range_resolution", 0.0438))
+        self.radar_min_range = float(rospy.get_param("~radar_min_range", 1.0))
+        self.radar_max_range = float(rospy.get_param("~radar_max_range", 8.0))
 
         self.lock = threading.Lock()
         self.bridge = CvBridge()
@@ -58,7 +62,7 @@ class GazeboStatusDashboard:
         self.radar_position = None
         self.radar_prediction = None
         self.image_stamp = None
-        self.radar_images = {"left": None, "right": None}
+        self.radar_images = {side: None for side in self.radar_sides}
 
         rospy.Subscriber(self.image_topic, Image, self._image_callback, queue_size=1)
         rospy.Subscriber(self.joint_topic, JointState, self._joint_callback, queue_size=1)
@@ -71,7 +75,7 @@ class GazeboStatusDashboard:
             "/radar/predicted_target_position", PointStamped,
             self._radar_prediction_callback, queue_size=1
         )
-        for side in ("left", "right"):
+        for side in self.radar_sides:
             topic = rospy.get_param("~radar_{}_topic".format(side), "/shooter/radar_{}/image".format(side))
             rospy.Subscriber(topic, Image, self._radar_callback, callback_args=side, queue_size=1)
         rospy.loginfo("Gazebo status dashboard listening for camera, joints, and model states")
@@ -194,7 +198,7 @@ class GazeboStatusDashboard:
             predicted_world = self._predicted_world_position(image.shape, angles, gimbal, prediction)
 
             panel_width = 440
-            radar_panel_height = 150
+            radar_panel_height = 320
             canvas = np.zeros((max(image.shape[0], 560) + radar_panel_height, image.shape[1] + panel_width, 3), dtype=np.uint8)
             canvas[:image.shape[0], :image.shape[1]] = image
             x0 = image.shape[1] + 24
@@ -232,7 +236,7 @@ class GazeboStatusDashboard:
                     cv2.putText(canvas, text, (x0, y), cv2.FONT_HERSHEY_SIMPLEX, scale,
                                 color, 1 if scale < 0.6 else 2, cv2.LINE_AA)
                 y += 38
-            for index, side in enumerate(("left", "right")):
+            for index, side in enumerate(self.radar_sides):
                 x = index * 520 + 10
                 radar = radar_images[side]
                 if radar is None:
@@ -240,12 +244,27 @@ class GazeboStatusDashboard:
                     cv2.putText(radar_bgr, "Waiting for FMCW radar...", (15, 65), cv2.FONT_HERSHEY_SIMPLEX,
                                 0.55, (0, 220, 255), 1, cv2.LINE_AA)
                 else:
-                    radar_bgr = cv2.cvtColor(cv2.resize(radar, (500, 120), interpolation=cv2.INTER_AREA),
-                                             cv2.COLOR_GRAY2BGR)
-                cv2.putText(canvas, "{} FMCW radar  (angle x range)".format(side.upper()),
+                    peak = int(np.max(radar))
+                    if peak > 0:
+                        # Scale each scan to its own peak before shrinking so
+                        # sparse, weak returns remain visible in the monitor.
+                        scaled = np.clip(radar.astype(np.float32) * (255.0 / peak), 0, 255).astype(np.uint8)
+                        scaled = cv2.dilate(scaled, np.ones((3, 3), dtype=np.uint8), iterations=1)
+                        resized = cv2.resize(scaled, (500, 120), interpolation=cv2.INTER_AREA)
+                        radar_bgr = cv2.applyColorMap(resized, cv2.COLORMAP_TURBO)
+                        radar_bgr[resized == 0] = (0, 0, 0)
+                    else:
+                        radar_bgr = np.zeros((120, 500, 3), dtype=np.uint8)
+                cv2.putText(canvas, "{} FMCW radar  (angle x range, relative strength)".format(side.upper()),
                             (x, image.shape[0] + 22), cv2.FONT_HERSHEY_SIMPLEX, 0.48,
                             (200, 230, 255), 1, cv2.LINE_AA)
                 canvas[image.shape[0] + 28:image.shape[0] + 148, x:x + 500] = radar_bgr
+                cv2.putText(canvas, "Range profile: strongest angle at each distance",
+                            (x, image.shape[0] + 170), cv2.FONT_HERSHEY_SIMPLEX, 0.45,
+                            (200, 230, 255), 1, cv2.LINE_AA)
+                profile = self._radar_range_profile(radar)
+                chart_y = image.shape[0] + 178
+                canvas[chart_y:chart_y + profile.shape[0], x:x + profile.shape[1]] = profile
             cv2.imshow(window, canvas)
             if cv2.waitKey(1) & 0xFF in (27, ord("q")):
                 rospy.signal_shutdown("Dashboard window closed")
@@ -264,6 +283,63 @@ class GazeboStatusDashboard:
     @staticmethod
     def _pixel_text(prediction):
         return "--" if prediction is None else "u={:.0f}  v={:.0f} px".format(*prediction[:2])
+
+    def _radar_range_profile(self, radar):
+        """Plot max return across azimuth versus range, with raw-value axes."""
+        panel = np.zeros((140, 500, 3), dtype=np.uint8)
+        if radar is None:
+            cv2.putText(panel, "Waiting for FMCW radar...", (125, 75), cv2.FONT_HERSHEY_SIMPLEX,
+                        0.55, (0, 220, 255), 1, cv2.LINE_AA)
+            return panel
+        start = max(0, int(self.radar_min_range / self.radar_range_resolution))
+        stop = min(radar.shape[0], int(self.radar_max_range / self.radar_range_resolution) + 1)
+        if stop <= start or radar.shape[1] == 0:
+            return panel
+
+        profile = radar[start:stop, :].max(axis=1).astype(np.float64)
+        raw_peak = float(profile.max()) if profile.size else 0.0
+        if raw_peak <= 0.0:
+            cv2.putText(panel, "No return in selected range", (95, 75), cv2.FONT_HERSHEY_SIMPLEX,
+                        0.55, (160, 160, 160), 1, cv2.LINE_AA)
+            return panel
+
+        left, right, top, bottom = 54, 492, 8, 112
+        y_step = max(1, int(math.ceil(raw_peak / 4.0)))
+        y_max = y_step * max(1, int(math.ceil(raw_peak * 1.15 / y_step)))
+        cv2.putText(panel, "strength", (4, 12), cv2.FONT_HERSHEY_SIMPLEX, 0.32,
+                    (180, 180, 180), 1, cv2.LINE_AA)
+
+        for value in range(0, y_max + 1, y_step):
+            y = bottom - int((value / float(y_max)) * (bottom - top))
+            cv2.line(panel, (left, y), (right, y), (45, 45, 45), 1, cv2.LINE_AA)
+            cv2.putText(panel, str(value), (left - 35, y + 4), cv2.FONT_HERSHEY_SIMPLEX,
+                        0.34, (180, 180, 180), 1, cv2.LINE_AA)
+
+        range_span = max(1e-6, self.radar_max_range - self.radar_min_range)
+        first_tick = int(math.ceil(self.radar_min_range))
+        last_tick = int(math.floor(self.radar_max_range))
+        for value in range(first_tick, last_tick + 1):
+            x = left + int(((value - self.radar_min_range) / range_span) * (right - left))
+            cv2.line(panel, (x, top), (x, bottom), (40, 40, 40), 1, cv2.LINE_AA)
+            cv2.putText(panel, str(value), (x - 5, 128), cv2.FONT_HERSHEY_SIMPLEX,
+                        0.34, (180, 180, 180), 1, cv2.LINE_AA)
+        cv2.putText(panel, "range (m)", (225, 138), cv2.FONT_HERSHEY_SIMPLEX,
+                    0.34, (180, 180, 180), 1, cv2.LINE_AA)
+
+        ranges = (np.arange(start, stop, dtype=np.float64) + 0.5) * self.radar_range_resolution
+        points = []
+        for range_m, strength in zip(ranges, profile):
+            x = left + int(((range_m - self.radar_min_range) / range_span) * (right - left))
+            y = bottom - int((strength / float(y_max)) * (bottom - top))
+            points.append((min(right, max(left, x)), min(bottom, max(top, y))))
+        if len(points) > 1:
+            cv2.polylines(panel, [np.asarray(points, dtype=np.int32)], False,
+                          (40, 100, 255), 2, cv2.LINE_AA)
+        peak_index = int(np.argmax(profile))
+        cv2.circle(panel, points[peak_index], 3, (0, 255, 255), -1, cv2.LINE_AA)
+        cv2.putText(panel, "peak={:.0f}".format(raw_peak), (left + 5, top + 13),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.34, (220, 220, 220), 1, cv2.LINE_AA)
+        return panel
 
 
 def main():

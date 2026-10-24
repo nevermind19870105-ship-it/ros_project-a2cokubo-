@@ -67,7 +67,7 @@
     <visual name="camera_housing">
       <origin xyz="0.18 0 0.12"/>
       <geometry><box size="0.22 0.17 0.14"/></geometry>
-      <material name="camera_housing_dark"><color rgba="0.10 0.13 0.18 1"/></material>
+      <material name="camera_housing_blue"><color rgba="0.02 0.18 0.82 1"/></material>
     </visual>
     <visual name="camera_lens_ring">
       <origin xyz="0.285 0 0.12" rpy="0 1.5708 0"/>
@@ -128,28 +128,27 @@
     </plugin>
   </gazebo>
 
-  <!-- FMCW radar sensors mounted on the left and right of the fixed base.
-       The center camera remains on the pan/tilt link above. -->
+  <!-- Single ground-anchored FMCW radar; its head stays at the balloon scan height. -->
   <link name="radar_left_link">
-    <!-- Visible mast and radar shell; the arrow marks the sensor's +X/0-degree axis. -->
+    <!-- Visible ground mast and radar shell; arrow marks the sensor's +X/0-degree axis. -->
     <visual name="left_radar_mast">
-      <origin xyz="0 0 -0.72"/>
-      <geometry><cylinder length="1.35" radius="0.025"/></geometry>
-      <material name="radar_mast_gray"><color rgba="0.25 0.28 0.30 1"/></material>
+      <origin xyz="0 0 -0.725"/>
+      <geometry><cylinder length="1.45" radius="0.025"/></geometry>
+      <material name="radar_mast_red"><color rgba="0.78 0.04 0.04 1"/></material>
     </visual>
     <visual name="left_radar_housing">
       <geometry><box size="0.22 0.22 0.16"/></geometry>
-      <material name="radar_left_body"><color rgba="0.22 0.28 0.30 1"/></material>
+      <material name="radar_left_body"><color rgba="0.82 0.06 0.04 1"/></material>
     </visual>
     <visual name="left_radar_front_panel">
       <origin xyz="0.115 0 0"/>
       <geometry><box size="0.015 0.17 0.11"/></geometry>
-      <material name="radar_left_panel"><color rgba="0.05 0.55 0.62 1"/></material>
+      <material name="radar_left_panel"><color rgba="1.0 0.18 0.08 1"/></material>
     </visual>
     <visual name="left_radar_forward_arrow_shaft">
       <origin xyz="0.16 0 0.105"/>
       <geometry><box size="0.15 0.025 0.022"/></geometry>
-      <material name="radar_left_arrow"><color rgba="0.10 1.0 0.65 1"/></material>
+      <material name="radar_left_arrow"><color rgba="1.0 0.35 0.22 1"/></material>
     </visual>
     <visual name="left_radar_forward_arrow_upper">
       <origin xyz="0.225 0.025 0.105" rpy="0 0 -0.70"/>
@@ -165,7 +164,7 @@
   <joint name="radar_left_mount" type="fixed">
     <parent link="base_link"/>
     <child link="radar_left_link"/>
-    <origin xyz="0 0.14 1.45" rpy="0 0 0"/>
+    <origin xyz="0 1.50 1.45" rpy="0 0 0"/>
   </joint>
   <gazebo reference="radar_left_link">
     <sensor type="radarays_embree" name="radar_left_sensor">
@@ -178,57 +177,6 @@
       </horizontal></scan><range><min>0.2</min><max>30.0</max><resolution>0.0438</resolution></range></ray>
       <plugin name="radarays_left_ros" filename="/opt/ros/noetic/lib/libradarays_embree_ros_gzplugin.so">
         <frame>radar_left_link</frame><topic>/shooter/radar_left/image</topic>
-      </plugin>
-    </sensor>
-  </gazebo>
-
-  <link name="radar_right_link">
-    <visual name="right_radar_mast">
-      <origin xyz="0 0 -0.72"/>
-      <geometry><cylinder length="1.35" radius="0.025"/></geometry>
-      <material name="radar_mast_gray"/>
-    </visual>
-    <visual name="right_radar_housing">
-      <geometry><box size="0.22 0.22 0.16"/></geometry>
-      <material name="radar_right_body"><color rgba="0.28 0.27 0.23 1"/></material>
-    </visual>
-    <visual name="right_radar_front_panel">
-      <origin xyz="0.115 0 0"/>
-      <geometry><box size="0.015 0.17 0.11"/></geometry>
-      <material name="radar_right_panel"><color rgba="0.72 0.36 0.04 1"/></material>
-    </visual>
-    <visual name="right_radar_forward_arrow_shaft">
-      <origin xyz="0.16 0 0.105"/>
-      <geometry><box size="0.15 0.025 0.022"/></geometry>
-      <material name="radar_right_arrow"><color rgba="1.0 0.68 0.12 1"/></material>
-    </visual>
-    <visual name="right_radar_forward_arrow_upper">
-      <origin xyz="0.225 0.025 0.105" rpy="0 0 -0.70"/>
-      <geometry><box size="0.075 0.022 0.022"/></geometry>
-      <material name="radar_right_arrow"/>
-    </visual>
-    <visual name="right_radar_forward_arrow_lower">
-      <origin xyz="0.225 -0.025 0.105" rpy="0 0 0.70"/>
-      <geometry><box size="0.075 0.022 0.022"/></geometry>
-      <material name="radar_right_arrow"/>
-    </visual>
-  </link>
-  <joint name="radar_right_mount" type="fixed">
-    <parent link="base_link"/>
-    <child link="radar_right_link"/>
-    <origin xyz="0 -0.14 1.45" rpy="0 0 0"/>
-  </joint>
-  <gazebo reference="radar_right_link">
-    <sensor type="radarays_embree" name="radar_right_sensor">
-      <pose>0 0 0 0 0 0</pose>
-      <always_on>true</always_on>
-      <update_rate>4</update_rate>
-      <ray><scan><horizontal>
-        <min_angle>-3.141593</min_angle><max_angle>3.141593</max_angle>
-        <samples>400</samples><resolution>1</resolution>
-      </horizontal></scan><range><min>0.2</min><max>30.0</max><resolution>0.0438</resolution></range></ray>
-      <plugin name="radarays_right_ros" filename="/opt/ros/noetic/lib/libradarays_embree_ros_gzplugin.so">
-        <frame>radar_right_link</frame><topic>/shooter/radar_right/image</topic>
       </plugin>
     </sensor>
   </gazebo>

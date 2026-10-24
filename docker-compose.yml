@@ -5,7 +5,19 @@ services:
     environment:
       - DISPLAY=host.docker.internal:0.0
     volumes:
-      - .:/workspace
+      # Keep the checked-out source tree read-only inside the container.
+      - .:/workspace:ro
+      # Training scripts may write model files to this directory.
+      - ./catkin_ws/src/aiming_robot/models:/workspace/catkin_ws/src/aiming_robot/models:rw
+      # Catkin build output stays in Docker-managed storage, outside the source tree.
+      - catkin_build:/workspace/catkin_ws/build
+      - catkin_devel:/workspace/catkin_ws/devel
+      - catkin_logs:/workspace/catkin_ws/logs
     network_mode: host
     tty: true
     stdin_open: true
+
+volumes:
+  catkin_build:
+  catkin_devel:
+  catkin_logs:

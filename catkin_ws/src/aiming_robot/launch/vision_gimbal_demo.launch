@@ -25,13 +25,18 @@
   <node name="spawn_demo_marker" pkg="gazebo_ros" type="spawn_model" output="screen"
         args="-urdf -model demo_marker -param demo_marker_description -x 2.8 -y 0.2 -z 1.5"/>
 
-  <node pkg="aiming_robot" type="configure_radar.py" name="configure_radar" output="screen"/>
+  <node pkg="aiming_robot" type="configure_radar.py" name="configure_radar" output="screen">
+    <rosparam param="sensor_sides">[left]</rosparam>
+  </node>
   <node pkg="aiming_robot" type="radar_target_tracker.py" name="radar_target_tracker" output="screen">
     <param name="range_resolution" value="0.0438"/>
-    <param name="min_range" value="0.6"/>
+    <param name="min_range" value="1.0"/>
     <param name="max_range" value="8.0"/>
-    <param name="min_intensity" value="20"/>
-    <param name="sensor_y_offset" value="0.14"/>
+    <param name="min_intensity" value="3"/>
+    <param name="max_bearing_degrees" value="70.0"/>
+    <param name="max_pair_separation" value="1.0"/>
+    <param name="sensor_side" value="left"/>
+    <param name="sensor_y_offset" value="1.50"/>
     <param name="scan_height" value="1.50"/>
     <param name="prediction_horizon" value="0.25"/>
     <param name="predictor_mode" value="$(arg radar_predictor_mode)"/>
@@ -56,8 +61,8 @@
     <rosparam param="hsv_upper">[85, 255, 255]</rosparam>
   </node>
   <node pkg="aiming_robot" type="camera_gimbal_controller.py" name="camera_gimbal_controller" output="screen">
-    <param name="target_source" value="radar"/>
-    <param name="radar_topic" value="/radar/predicted_target_position"/>
+    <param name="target_source" value="vision"/>
+    <param name="offset_topic" value="/vision/marker_offset"/>
     <param name="aim_origin_z" value="0.25"/>
   </node>
   <node pkg="aiming_robot" type="gazebo_status_dashboard.py" name="gazebo_status_dashboard" output="screen">
@@ -72,5 +77,9 @@
     <param name="camera_forward_offset" value="0.30"/>
     <param name="radar_prediction_horizon" value="0.25"/>
     <param name="radar_predictor_mode" value="$(arg radar_predictor_mode)"/>
+    <param name="radar_range_resolution" value="0.0438"/>
+    <param name="radar_min_range" value="1.0"/>
+    <param name="radar_max_range" value="8.0"/>
+    <rosparam param="radar_sides">[left]</rosparam>
   </node>
 </launch>

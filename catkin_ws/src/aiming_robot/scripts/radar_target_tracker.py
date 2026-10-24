@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fuse two FMCW polar images into a target position and short-term prediction.
+"""Convert one or two FMCW polar images into a target position and prediction.
 
 The demo robot is fixed at the Gazebo world origin. Each radar reports a 2D
 range/bearing image, so the output height is the radar scan plane height.
@@ -25,6 +25,11 @@ class RadarTargetTracker:
         self.min_intensity = int(rospy.get_param("~min_intensity", 20))
         self.sensor_y = float(rospy.get_param("~sensor_y_offset", 0.14))
         self.scan_height = float(rospy.get_param("~scan_height", 1.50))
+        self.max_bearing = math.radians(float(rospy.get_param("~max_bearing_degrees", 70.0)))
+        self.max_pair_separation = float(rospy.get_param("~max_pair_separation", 1.0))
+        self.sensor_side = rospy.get_param("~sensor_side", "").lower()
+        if self.sensor_side not in ("", "left", "right"):
+            raise ValueError("~sensor_side must be empty, 'left', or 'right'")
         self.prediction_horizon = float(rospy.get_param("~prediction_horizon", 0.25))
         self.predictor_mode = rospy.get_param("~predictor_mode", "mlp").lower()
         default_model = Path(rospkg.RosPack().get_path("aiming_robot")) / "models" / "radar_trajectory_mlp.npz"
@@ -61,16 +66,28 @@ class RadarTargetTracker:
         self.prediction_pub = rospy.Publisher(
             "/radar/predicted_target_position", PointStamped, queue_size=1
         )
-        for side in ("left", "right"):
+        sides = (self.sensor_side,) if self.sensor_side else ("left", "right")
+        for side in sides:
             topic = rospy.get_param("~{}_image_topic".format(side), "/shooter/radar_{}/image".format(side))
             rospy.Subscriber(topic, Image, self._image_callback, callback_args=side, queue_size=1)
-        rospy.loginfo("Fusing left/right FMCW radar images; predictor=%s", self.predictor_mode)
+        if self.sensor_side:
+            rospy.loginfo("Tracking from the %s FMCW radar; predictor=%s", self.sensor_side, self.predictor_mode)
+        else:
+            rospy.loginfo("Fusing left/right FMCW radar images; predictor=%s", self.predictor_mode)
 
     def _image_callback(self, message, side):
         try:
             image = np.frombuffer(message.data, dtype=np.uint8).reshape(message.height, message.width)
         except (ValueError, TypeError) as exc:
             rospy.logwarn_throttle(5.0, "Could not decode %s radar image: %s", side, exc)
+            return
+
+        if self.sensor_side:
+            detection = self._detect(image, self.sensor_y if side == "left" else -self.sensor_y)
+            if detection is None:
+                rospy.logwarn_throttle(3.0, "No forward target return above the radar intensity threshold")
+                return
+            self._publish_position(detection[0], message.header.stamp)
             return
 
         with self.lock:
@@ -99,15 +116,21 @@ class RadarTargetTracker:
 
         if len(detections) == 2:
             separation = float(np.linalg.norm(detections[0][0] - detections[1][0]))
-            if separation > 1.5:
+            if separation > self.max_pair_separation:
                 rospy.logwarn_throttle(
-                    3.0, "Radar estimates disagree by %.2f m; using the stronger return", separation
+                    3.0, "Rejecting radar scan: left/right estimates disagree by %.2f m", separation
                 )
-                detections = [max(detections, key=lambda item: item[1])]
+                return
+        elif len(detections) == 1:
+            rospy.logwarn_throttle(5.0, "Rejecting radar scan: a matching return from both sensors is required")
+            return
 
         weights = np.asarray([max(1.0, item[1]) for item in detections], dtype=np.float64)
         xy = np.average(np.stack([item[0] for item in detections]), axis=0, weights=weights)
         stamp = max(left[0], right[0])
+        self._publish_position(xy, stamp)
+
+    def _publish_position(self, xy, stamp):
         point = PointStamped()
         point.header.stamp = stamp
         point.header.frame_id = "world"
@@ -123,13 +146,24 @@ class RadarTargetTracker:
         if stop <= start:
             return None
         roi = image[start:stop]
-        row, column = np.unravel_index(int(np.argmax(roi)), roi.shape)
-        intensity = int(roi[row, column])
+        # Restrict detections to the forward sector. Back-facing returns are
+        # commonly reflections from the robot, ground masts, or the other radar.
+        columns = np.arange(image.shape[1])
+        bearings = -math.pi + 2.0 * math.pi * (columns + 0.5) / image.shape[1]
+        forward_columns = np.flatnonzero(np.abs(bearings) <= self.max_bearing)
+        if forward_columns.size == 0:
+            return None
+        sector = roi[:, forward_columns]
+        row, sector_column = np.unravel_index(int(np.argmax(sector)), sector.shape)
+        column = int(forward_columns[sector_column])
+        intensity = int(sector[row, sector_column])
         if intensity < self.min_intensity:
             return None
 
         range_m = (start + row + 0.5) * self.resolution
-        bearing = -2.0 * math.pi * (column + 0.5) / image.shape[1]
+        # The sensor image starts at -pi (its SDF min_angle) and progresses
+        # toward +pi. The previous zero-based conversion rotated returns by pi.
+        bearing = bearings[column]
         xy = np.asarray(
             [range_m * math.cos(bearing), sensor_y + range_m * math.sin(bearing)],
             dtype=np.float64,
